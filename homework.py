@@ -1,5 +1,6 @@
 import logging
 import os
+import sys
 import time
 from http import HTTPStatus
 
@@ -8,7 +9,7 @@ import telegram
 from dotenv import load_dotenv
 
 from exceptions import (APIAnswerNot200Error, NoneDocumentStatusError,
-                        RequestError, StopProgrammNotTokensError,
+                        RequestError,
                         )
 
 load_dotenv()
@@ -26,13 +27,10 @@ HEADERS = {'Authorization': f'OAuth {PRACTICUM_TOKEN}'}
 HOMEWORK_VERDICTS = {
     'approved': 'Работа проверена: ревьюеру всё понравилось. Ура!',
     'reviewing': 'Работа взята на проверку ревьюером.',
-    'rejected': 'Работа проверена: у ревьюера есть замечания.'
+    'rejected': 'Работа проверена: у ревьюера есть замечания.',
 }
 
-logging.basicConfig(
-    level=logging.WARNING,
-    format='%(asctime)s - [%(levelname)s] - %(message)s',
-)
+
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 handler = logging.StreamHandler()
@@ -42,29 +40,22 @@ handler.setFormatter(formatter)
 
 def check_tokens():
     """Проверка доступности переменных окружения."""
-    error_message = 'Отсутствует обязательная переменная окружения:'
-    if PRACTICUM_TOKEN is None:
-        logger.critical(f'{error_message} PRACTICUM_TOKEN')
-        return False
-    if TELEGRAM_TOKEN is None:
-        logger.critical(f'{error_message} TELEGRAM_TOKEN')
-        return False
-    if TELEGRAM_CHAT_ID is None:
-        logger.critical(f'{error_message} TELEGRAM_CHAT_ID')
-        return False
-    return True
+    logger.debug('Проверка наличия токенов')
+    return all([PRACTICUM_TOKEN, TELEGRAM_TOKEN, TELEGRAM_CHAT_ID])
 
 
 def send_message(bot, message):
     """Отправка сообщений в Telegram."""
     try:
+        logger.debug('Начало отправления сообщения')
         bot.send_message(TELEGRAM_CHAT_ID, message)
-        logger.debug(
-            f'Бот отправил сообщение: "{message}"'
-        )
     except telegram.TelegramError as error:
         logger.error(
             f'При отправке сообщения произошёл сбой: {error}'
+        )
+    else:
+        logger.debug(
+            f'Бот успешно отправил сообщение: "{message}"'
         )
 
 
@@ -73,6 +64,7 @@ def get_api_answer(timestamp):
     payload = {
         'from_date': timestamp,
     }
+    logger.debug(f'Начало запроса к API: {ENDPOINT}')
     try:
         response = requests.get(
             ENDPOINT,
@@ -80,9 +72,14 @@ def get_api_answer(timestamp):
             params=payload,
         )
     except Exception as error:
-        error_message = f'Произошел сбой при запросе к API: {error}'
+        error_message = (
+            f'Произошел сбой при запросе к API: {error}'
+            f'Запрос был таким: {ENDPOINT}, {HEADERS}, {payload}'
+        )
         logger.error(error_message)
         raise RequestError(error_message)
+    else:
+        logger.debug('Запрос был успешно отправлен')
     if response.status_code != HTTPStatus.OK:
         error_message = (
             f'Эндпоинт {ENDPOINT} недоступен.'
@@ -129,8 +126,8 @@ def main():
     """Основная логика работы бота."""
     if not check_tokens():
         error_message = 'Программа была остановлена из за отсутствия токенов'
-        logger.info(error_message)
-        raise StopProgrammNotTokensError(error_message)
+        logger.critical(error_message)
+        sys.exit()
     bot = telegram.Bot(token=TELEGRAM_TOKEN)
     start_message = 'DomashkaBot начал свою работу'
     logger.info(start_message)
@@ -149,11 +146,18 @@ def main():
                 logger.debug('Отсутствуют в ответе новые статусы')
         except Exception as error:
             message = f'Сбой в работе программы: {error}'
-            send_message(bot, message)
+            logger.error(message)
+            if message != past_message:
+                send_message(bot, message)
+                past_message = message
         time.sleep(RETRY_PERIOD)
 
 
 if __name__ == '__main__':
+    logging.basicConfig(
+        level=logging.WARNING,
+        format='%(asctime)s - [%(levelname)s] - %(message)s',
+    )
     try:
         main()
     except KeyboardInterrupt:
