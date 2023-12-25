@@ -56,7 +56,7 @@ TELEGRAM_CHAT_ID=ваш_id_чата
 Запустить бота с помощью следующей команды:
 
 ```
-python weather_bot.py
+python homework.py
 ```
 
 ## Использование
